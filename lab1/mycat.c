@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <unistd.h>
 
-#define BUF_SIZE 1024
+#define BUF_SIZE 4096
 
 void command_n(char* buffer, int* strCnt) {
     char tmp[BUF_SIZE];
@@ -45,22 +47,18 @@ int checkFlag(char* flags, char fl) {
 void cat(int argc, char** argv) {
     char buffer[BUF_SIZE];
     char flags[100];
-    char line_flags[BUF_SIZE];
-    int line_flagsCount = 0;
     int flagsCount = 0;
     char * filename;
 
     if (argc == 1) {
         while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
             fprintf(stdout, "%s", buffer);
+            
         }
     }
 
     for (int i = 1; i < argc; ++i) {
-        if (strstr(argv[i], "--") != NULL) {
-            line_flags[line_flagsCount++] = argv[i];
-        }
-        else if (argv[i][0] == '-') {
+        if (argv[i][0] == '-') {
             for (size_t j = 1; j < strlen(argv[i]); ++j) {
                 flags[flagsCount++] = argv[i][j];
             }
@@ -72,7 +70,7 @@ void cat(int argc, char** argv) {
 
     FILE * file = fopen(filename, "r");
     if (file == NULL) {
-        fprintf(stdout, "cat: %s", filename);
+        fprintf(stdout, "cat: %s: %s\n", filename, strerror(errno));
         exit(1);
     }
     
@@ -83,7 +81,7 @@ void cat(int argc, char** argv) {
             if (checkFlag(flags, 'b')) {
                 command_b(buffer, &strCnt);
             }
-            else if (checkFlag(flags, 'n') || checkFlag(flags, "number")) {
+            else if (checkFlag(flags, 'n')) {
                 command_n(buffer, &strCnt);
             }
 
@@ -94,5 +92,13 @@ void cat(int argc, char** argv) {
         fprintf(stdout, "%s", buffer);
     }
     fclose(file);
+    fflush(stdout);
     
 }
+
+int main(int argc, char** argv) {
+    cat(argc, argv);	
+
+    return 0;                   	
+}       	
+        	
