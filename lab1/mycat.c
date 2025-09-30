@@ -5,6 +5,8 @@
 #include <errno.h>
 #include <unistd.h>
 
+#include <getopt.h>
+
 #define BUF_SIZE 4096
 
 void command_n(char* buffer, int* strCnt) {
@@ -46,28 +48,36 @@ int checkFlag(char* flags, char fl) {
 
 void cat(int argc, char** argv) {
     char buffer[BUF_SIZE];
-    char flags[100];
-    int flagsCount = 0;
-    char * filename;
+    int flag_b = 0, flag_n = 0, flag_E = 0;
+    char* filename;
 
     if (argc == 1) {
         while (fgets(buffer, sizeof(buffer), stdin) != NULL) {
             fprintf(stdout, "%s", buffer);
-            
         }
     }
 
-    for (int i = 1; i < argc; ++i) {
-        if (argv[i][0] == '-') {
-            for (size_t j = 1; j < strlen(argv[i]); ++j) {
-                flags[flagsCount++] = argv[i][j];
-            }
-        }
-        else {
-            filename = argv[i];
+    int rez;
+    while ((rez = getopt(argc, argv, "bnE")) != -1) {
+        switch (rez) {
+            case 'b':
+                flag_b = 1;
+                break;
+            case 'n':
+                flag_n = 1;
+                break;
+            case 'E':
+                flag_E = 1;
+                break;
+            default:
+                exit(1);
         }
     }
 
+    if (optind < argc) {
+        filename = argv[optind];
+    }
+    
     FILE * file = fopen(filename, "r");
     if (file == NULL) {
         fprintf(stdout, "cat: %s: %s\n", filename, strerror(errno));
@@ -77,23 +87,20 @@ void cat(int argc, char** argv) {
     /// lines parsing
     int strCnt = 0;
     while (fgets(buffer, sizeof(buffer), file) != NULL) {
-        if (flagsCount != 0) {
-            if (checkFlag(flags, 'b')) {
-                command_b(buffer, &strCnt);
-            }
-            else if (checkFlag(flags, 'n')) {
-                command_n(buffer, &strCnt);
-            }
+        if (flag_b) {
+            command_b(buffer, &strCnt);
+        }
+        else if (flag_n) {
+            command_n(buffer, &strCnt);
+        }
 
-            if (checkFlag(flags, 'E')) {
-                command_E(buffer);
-            }
+        if (flag_E) {
+            command_E(buffer);
         }
         fprintf(stdout, "%s", buffer);
     }
     fclose(file);
-    fflush(stdout);
-    
+    fflush(stdout);    
 }
 
 int main(int argc, char** argv) {

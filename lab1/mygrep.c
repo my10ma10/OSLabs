@@ -16,7 +16,7 @@ void format(char* line) {
     }
 }
 
-void find_target(const char* line, const char* substring) {
+int find_target(const char* line, const char* substring) {
    char* found_pos;
 
     if ((found_pos = strstr(line, substring)) != NULL) {
@@ -27,8 +27,12 @@ void find_target(const char* line, const char* substring) {
         printf(RED BOLD "%.*s" RESET_COLOR, (int)strlen(substring), substring);
 
         // after target
-        printf("%s\n", found_pos + strlen(substring)); 
+        if (find_target(found_pos + strlen(substring), substring) == 0) {
+            printf("%s\n", found_pos + strlen(substring)); 
+        }
+        return 1;
     }
+    return 0;
 }
 
 void grep(int argc, char** argv) {
