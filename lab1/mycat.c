@@ -42,10 +42,6 @@ void command_E(char* buffer) {
     strcpy(buffer, tmp);
 }
 
-int checkFlag(char* flags, char fl) {
-    return strchr(flags, fl) != NULL;
-}
-
 void cat(int argc, char** argv) {
     char buffer[BUF_SIZE];
     int flag_b = 0, flag_n = 0, flag_E = 0;
@@ -107,5 +103,4 @@ int main(int argc, char** argv) {
     cat(argc, argv);	
 
     return 0;                   	
-}       	
-        	
+}
