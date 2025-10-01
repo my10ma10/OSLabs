@@ -25,13 +25,13 @@ void ls(int* a_flag, int* l_flag, const char** path);
 int endswith(const char* str, const char* suffix);
 void handle_params(int argc, char **argv, int* a_flag, int* l_flag, const char** path);
 
-void colorize_filename(struct stat st, const char* name, char* out, size_t size);
-void full_format(struct stat st, const char* filename, char* out, size_t size);
+void colorize_filename(struct stat st, const char* name);
+void full_format(struct stat st, const char* filename);
 
-void add_permissions(char* out, size_t size, mode_t mode);
-void add_nlinks(struct stat st, char* out, size_t size);
-void add_user(struct stat st, char* out, size_t size);
-void add_group(struct stat st, char* out, size_t size);
+void add_permissions(mode_t mode);
+void add_nlinks(struct stat st);
+void add_user(struct stat st);
+void add_group(struct stat st);
 
 
 int main(int argc, char** argv) {
@@ -90,62 +90,58 @@ void ls(int* a_flag, int* l_flag, const char** path) {
             exit(1);
         }
 
-        char buf[BUF_SIZE];
         if (*l_flag) {
-            full_format(st, entry->d_name, buf, sizeof(buf));
-            printf("%s\n", buf);
+            full_format(st, entry->d_name);
         }
         else {
-            colorize_filename(st, entry->d_name, buf, sizeof(buf));
-            printf("%s", buf);   
+            colorize_filename(st, entry->d_name);
         }
+        printf("\n");
     }
 
-    printf("\n");
 
     closedir(dir);
 }
 
-void colorize_filename(struct stat st, const char* name, char* out, size_t size) {
-    char buf[BUF_SIZE];
+void colorize_filename(struct stat st, const char* name) {
     if (S_ISREG(st.st_mode)) { // regular file
-        snprintf(buf, sizeof(buf), GREEN_COLOR BOLD "%s  " RESET_COLOR, name);
+        printf(GREEN_COLOR BOLD "%s  " RESET_COLOR, name);
     }
     else if (S_ISLNK(st.st_mode)) { // link
-        snprintf(buf, sizeof(buf), LIGHT_BLUE_COLOR BOLD "%s  " RESET_COLOR, name);
+        printf(LIGHT_BLUE_COLOR BOLD "%s  " RESET_COLOR, name);
     }
     else if (S_ISDIR(st.st_mode)) { // directory
-        snprintf(buf, sizeof(buf), BLUE_COLOR GREEN_BACK "%s" RESET_COLOR "  ", name);
+        printf(BLUE_COLOR GREEN_BACK "%s" RESET_COLOR "  ", name);
     }
-    strcat(out, " ");
-    strncat(out, buf, size - sizeof(out) - 1);
+    else {
+        printf("%s  ", name);
+    }
 }
 
-void full_format(struct stat st, const char* filename, char* out, size_t out_size) {
-    add_permissions(out, out_size, st.st_mode);
+void full_format(struct stat st, const char* filename) {
+    add_permissions(st.st_mode);
 
-    add_nlinks(st, out, out_size);
+    add_nlinks(st);
 
-    add_user(st, out, out_size);
+    add_user(st);
     
-    add_group(st, out, out_size);
+    add_group(st);
     
 
     
-    colorize_filename(st, filename, out, out_size);
+    colorize_filename(st, filename);
 }
 
-void add_user(struct stat st, char* out, size_t size) {
+void add_user(struct stat st) {
     struct passwd* pwd_info = getpwuid(st.st_uid);
     if (pwd_info == NULL) {
         perror("Error pwd_info");
         exit(1);
     }
-    strcat(out, " ");
-    strncat(out, pwd_info->pw_name, size - strlen(out) - 1);
+    printf("%s ", pwd_info->pw_name);
 }
 
-void add_permissions(char* out, size_t size, mode_t mode) {
+void add_permissions(mode_t mode) {
     char perms[PERMS_SIZE];
 
     if (S_ISREG(mode)) { // regular file
@@ -175,26 +171,21 @@ void add_permissions(char* out, size_t size, mode_t mode) {
     perms[10] = '\0';
 
     // add permissions to out
-    snprintf(out, size, "%s", perms);
+    printf("%s ", perms);
 }
 
-void add_nlinks(struct stat st, char* out, size_t size) {
-    char links_buf[BUF_SIZE];
-
-    snprintf(links_buf, sizeof(links_buf), " %lu", (unsigned long int)st.st_nlink);
-
-    strncat(out, links_buf, size - strlen(out) - 1);
+void add_nlinks(struct stat st) {
+    printf("%lu ", (unsigned long int)st.st_nlink);
 }
 
-void add_group(struct stat st, char* out, size_t size) {
+void add_group(struct stat st) {
     struct group* grp_info = getgrgid(st.st_gid);
 
     if (grp_info == NULL) {
         perror("Error grp_info");
         exit(1);
     }
-    strcat(out, " ");
-    strncat(out, grp_info->gr_name, size - strlen(out) - 1);
+    printf("%s ", grp_info->gr_name);
 }
 
 int endswith(const char* str, const char* suffix) {
