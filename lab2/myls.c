@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -22,7 +23,6 @@
 #define PERMS_SIZE 11
 
 void ls(int* a_flag, int* l_flag, const char** path);
-int endswith(const char* str, const char* suffix);
 void handle_params(int argc, char **argv, int* a_flag, int* l_flag, const char** path);
 
 void colorize_filename(struct stat st, const char* name);
@@ -32,6 +32,7 @@ void add_permissions(mode_t mode);
 void add_nlinks(struct stat st);
 void add_user(struct stat st);
 void add_group(struct stat st);
+void add_time(struct stat st);
 
 
 int main(int argc, char** argv) {
@@ -96,10 +97,11 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         else {
             colorize_filename(st, entry->d_name);
         }
-        printf("\n");
     }
 
-
+    if (!*l_flag) {
+        printf("\n");
+    }
     closedir(dir);
 }
 
@@ -127,9 +129,21 @@ void full_format(struct stat st, const char* filename) {
     
     add_group(st);
     
+    printf("%ld\t", st.st_size); // size of file
+
+    add_time(st);
 
     
     colorize_filename(st, filename);
+    printf("\n");
+}
+
+void add_time(struct stat st) {
+    char* time_str = ctime(&st.st_ctime);
+
+    char formatted_time[12];
+    strncpy(formatted_time, time_str + 4, 12);
+    printf("%s  ", formatted_time);
 }
 
 void add_user(struct stat st) {
@@ -186,14 +200,4 @@ void add_group(struct stat st) {
         exit(1);
     }
     printf("%s ", grp_info->gr_name);
-}
-
-int endswith(const char* str, const char* suffix) {
-    if (!str || !suffix) 
-        return 0;
-    
-    if (strlen(suffix) > strlen(str)) 
-        return 0;
-    
-    return strncmp(str + strlen(str) - strlen(suffix), suffix, strlen(suffix)) == 0;
 }
