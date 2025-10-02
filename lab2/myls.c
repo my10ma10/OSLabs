@@ -39,7 +39,7 @@ void ls(int* a_flag, int* l_flag, const char** path);
 void handle_params(int argc, char **argv, int* a_flag, int* l_flag, const char** path);
 
 void colorize_filename(struct stat st, const char* name);
-void full_format(struct stat st, const char* filename);
+void full_format(struct stat st, const char* filename, const char* fullpath);
 
 void add_permissions(mode_t mode);
 void add_nlinks(struct stat st);
@@ -163,7 +163,7 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         }
 
         if (*l_flag) {
-            full_format(st, files[i]);
+            full_format(st, files[i], fullpath);
         }
         else {
             colorize_filename(st, files[i]);
@@ -210,7 +210,7 @@ void colorize_filename(struct stat st, const char* name) {
     }
 }
 
-void full_format(struct stat st, const char* filename) {
+void full_format(struct stat st, const char* filename, const char* fullpath) {
     add_permissions(st.st_mode);
 
     add_nlinks(st);
@@ -225,6 +225,15 @@ void full_format(struct stat st, const char* filename) {
 
     
     colorize_filename(st, filename);
+
+    if (S_ISLNK(st.st_mode)) {
+        char target[BUF_SIZE];
+        ssize_t len = readlink(fullpath, target, sizeof(target) - 1);
+        if (len != -1) {
+            target[len] = '\0';
+            printf(BLUE_COLOR BOLD "-> %s" RESET_COLOR, target);
+        }
+    }
     printf("\n");
 }
 
