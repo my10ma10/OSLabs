@@ -83,6 +83,7 @@ void ls(int* a_flag, int* l_flag, const char** path) {
     char fullpath[BUF_SIZE];
     struct dirent* entry;
     struct stat st;
+    long total = 0;
 
     char** files = malloc(CAPACITY * sizeof(char*)); 
     if (!files) { 
@@ -119,6 +120,10 @@ void ls(int* a_flag, int* l_flag, const char** path) {
     for (int i = 0; i < files_count; ++i) {
         snprintf(fullpath, sizeof(fullpath), "%s/%s", *path, files[i]);
 
+        if (lstat(fullpath, &st) == 0) {
+            total += st.st_blocks;
+        }
+
         if (lstat(fullpath, &st) == -1) {
             errors[err_count].errnum = errno;
             strncpy(errors[err_count].path, fullpath, BUF_SIZE-1);
@@ -139,12 +144,17 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         if (!*a_flag && files[i][0] == '.') {
             continue;
         }
+
         int len = strlen(files[i]);
-        if (len > max_len) max_len = len;
+        if (len > max_len) {
+            max_len = len;
+        }
     }
     max_len += 2;
     
-
+    if (*l_flag) {
+        printf("total %ld\n", total / 2);
+    }
     // print files
     for (int i = 0; i < files_count; ++i) {
         snprintf(fullpath, sizeof(fullpath), "%s/%s", *path, files[i]);
@@ -211,6 +221,7 @@ void colorize_filename(struct stat st, const char* name) {
 }
 
 void full_format(struct stat st, const char* filename, const char* fullpath) {
+
     add_permissions(st.st_mode);
 
     add_nlinks(st);
