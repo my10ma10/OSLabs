@@ -136,9 +136,14 @@ void ls(int* a_flag, int* l_flag, const char** path) {
     // for table_view
     int max_len = 0;
     for (int i = 0; i < files_count; i++) {
+        if (!*a_flag && files[i][0] == '.') {
+            continue;
+        }
         int len = strlen(files[i]);
         if (len > max_len) max_len = len;
     }
+    max_len += 2;
+    
 
     // print files
     for (int i = 0; i < files_count; ++i) {
@@ -162,9 +167,14 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         }
         else {
             colorize_filename(st, files[i]);
-            printf("%-*s", max_len + 2, ""); // выравнивание после имени
+            int name_len = strlen(files[i]);
+            int padding = max_len - name_len;
+            
+            for (int j = 0; j < padding; j++) {
+                printf(" ");
+            }
 
-            if ((i+1) % 5 == 0) printf("\n"); // 5 колонок
+            if ((i+1) % 5 == 0) printf("\n");
 
         }
         free(files[i]);
