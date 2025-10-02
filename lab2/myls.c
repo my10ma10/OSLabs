@@ -259,7 +259,7 @@ void add_time(struct stat st) {
 void add_user(struct stat st) {
     struct passwd* pwd_info = getpwuid(st.st_uid);
     if (pwd_info == NULL) {
-        printf("? "); // pwd_info error
+        printf("%ud ", st.st_uid); // pwd_info error
         return;
     }
     printf("%s ", pwd_info->pw_name);
@@ -307,7 +307,7 @@ void add_group(struct stat st) {
     struct group* grp_info = getgrgid(st.st_gid);
 
     if (grp_info == NULL) {
-        printf("? "); // grp_info error
+        printf("%ud ", st.st_gid); // grp_info error
         return;
     }
     printf("%s ", grp_info->gr_name);
