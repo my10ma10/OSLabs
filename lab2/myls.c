@@ -92,6 +92,25 @@ void ls(int* a_flag, int* l_flag, const char** path) {
     char fullpath[BUF_SIZE];
     struct dirent* entry;
     struct stat st;
+
+    if (lstat(*path, &st) == 0) {
+        if (!S_ISDIR(st.st_mode)) { // it is a file
+            if (*l_flag) {
+                full_format(st, *path, *path);
+            }
+            else {
+                add_simple_filename(st, *path);
+            }
+            if (!*l_flag)
+                printf("\n");
+            return;
+        }
+    } 
+    else {
+        fprintf(stderr, "ls: cannot access '%s': %s\n", *path, strerror(errno));
+        return;
+    }
+   
     long total = 0;
 
     char** files = malloc(INIT_CAPACITY * sizeof(char*)); 
@@ -191,7 +210,6 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 
                 printf("%-*s ", 12, "?");
 
-                // имя файла
                 printf("%s\n", files[i]);
             } 
             else {
