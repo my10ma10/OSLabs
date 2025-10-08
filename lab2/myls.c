@@ -29,24 +29,32 @@ typedef struct {
     int errnum;
 } Errors;
 
-static int cmp_strptr(const void *p1, const void *p2) {
-    const char *a = *(const char * const *)p1;
-    const char *b = *(const char * const *)p2;
-    return strcmp(a, b);
-}
+typedef struct {
+    int links;
+    int user_name;
+    int group_name;
+    int file_size;
+    int file_name;
+} Indents;  
+
+static Indents indents_before = {0, 0, 0, 0, 0};
 
 void ls(int* a_flag, int* l_flag, const char** path);
 void handle_params(int argc, char **argv, int* a_flag, int* l_flag, const char** path);
 
-void colorize_filename(struct stat st, const char* name);
+void add_full_filename(struct stat st, const char* name, int is_link);
+void add_simple_filename(struct stat st, const char* name);
 void full_format(struct stat st, const char* filename, const char* fullpath);
 void join_path(const char* dir, const char* name, char* out, size_t out_size);
+void calculate_indents(struct stat st, const char* file);
+int cmp_strptr(const void* p1, const void* p2);
 
 void add_permissions(mode_t mode);
 void add_nlinks(struct stat st);
 void add_user(struct stat st);
 void add_group(struct stat st);
 void add_time(struct stat st);
+
 
 
 int main(int argc, char** argv) {
@@ -132,7 +140,9 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 
     // find errors
     for (int i = 0; i < files_count; ++i) {
+        if (!*a_flag && files[i][0]=='.') continue;
         join_path(*path, files[i], fullpath, sizeof(fullpath));
+        
 
         int st_status = lstat(fullpath, &st);
         if (st_status == 0) {
@@ -145,40 +155,47 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 
             err_count++;
         }
+
+        if (st_status == 0) {
+            calculate_indents(st, files[i]);
+        }
     }
 
     // print errors
     for (int i = 0; i < err_count; i++) {
         fprintf(stderr, "ls: %s: %s\n", errors[i].path, strerror(errors[i].errnum));
     }
-
-    // for table_view
-    int max_len = 0;
-    for (int i = 0; i < files_count; i++) {
-        if (!*a_flag && files[i][0] == '.') {
-            continue;
-        }
-
-        int len = strlen(files[i]);
-        if (len > max_len) {
-            max_len = len;
-        }
-    }
-    max_len += 2;
     
     if (*l_flag) {
         printf("total %ld\n", total / 2);
     }
     // print files
-    for (int i = 0; i < files_count; ++i) {        
+    for (int i = 0; i < files_count; ++i) {      
         if (!*a_flag && files[i][0] == '.') {
             continue;
         }
         
+        join_path(*path, files[i], fullpath, sizeof(fullpath));  
         // init struct stat
         if (lstat(fullpath, &st) == -1) {
             if (*l_flag) {
-                printf("??????????\t ?\t ?\t ?\t ?\t ?    %s\n", files[i]);
+                printf("%-*s ", 10, "-?????????");
+
+                printf("%*s ", indents_before.links, "?");
+
+                printf("%-*s ", indents_before.user_name, "?");
+
+                printf("%-*s ", indents_before.group_name, "?");
+
+                printf("%*s ", indents_before.file_size, "?");
+
+                printf("%-*s ", 12, "?");
+
+                // имя файла
+                printf("%s\n", files[i]);
+            } 
+            else {
+                printf("%s  ", files[i]);
             }
             free(files[i]);
             continue;
@@ -188,15 +205,7 @@ void ls(int* a_flag, int* l_flag, const char** path) {
             full_format(st, files[i], fullpath);
         }
         else {
-            colorize_filename(st, files[i]);
-            int name_len = strlen(files[i]);
-            int padding = max_len - name_len;
-            
-            for (int j = 0; j < padding; j++) {
-                printf(" ");
-            }
-
-            if ((i+1) % 5 == 0) printf("\n");
+            add_simple_filename(st, files[i]);
 
         }
         free(files[i]);
@@ -212,7 +221,35 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 }
 
 
-void colorize_filename(struct stat st, const char* name) {
+void add_full_filename(struct stat st, const char* name, int is_link) {
+    const char* sep = is_link ? "" : " ";
+
+    if (S_ISREG(st.st_mode)) { // regular file
+        if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) { // executable
+            printf(GREEN_COLOR BOLD "%-*s" RESET_COLOR "%s", indents_before.file_name, name, sep);
+        } 
+        else { // non executable
+            printf("%-*s%s", indents_before.file_name, name, sep);
+        }
+    }
+    else if (S_ISLNK(st.st_mode)) { // link
+        printf(LIGHT_BLUE_COLOR BOLD "%s" RESET_COLOR "%s", name, sep);
+    }
+    else if (S_ISDIR(st.st_mode)) { // directory
+        if (st.st_mode & S_IWOTH) {
+            printf(BLUE_COLOR GREEN_BACK "%-*s" RESET_COLOR "%s", indents_before.file_name, name, sep);
+        }
+        else {
+            printf(BLUE_COLOR BOLD "%-*s" RESET_COLOR "%s", indents_before.file_name, name, sep);
+        }
+    }
+    else {
+        printf("%-*s%s", indents_before.file_name, name, sep);
+    }
+}
+
+
+void add_simple_filename(struct stat st, const char* name) {
     if (S_ISREG(st.st_mode)) { // regular file
         if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) { // executable
             printf(GREEN_COLOR BOLD "%s  " RESET_COLOR, name);
@@ -247,39 +284,22 @@ void full_format(struct stat st, const char* filename, const char* fullpath) {
     
     add_group(st);
     
-    printf("%ld\t", st.st_size); // size of file
+    printf("%*ld", indents_before.file_size, st.st_size); // size of file
 
     add_time(st);
-
     
-    colorize_filename(st, filename);
+    add_full_filename(st, filename, S_ISLNK(st.st_mode));
 
+    // add "-> link"
     if (S_ISLNK(st.st_mode)) {
         char target[BUF_SIZE];
         ssize_t len = readlink(fullpath, target, sizeof(target) - 1);
         if (len != -1) {
             target[len] = '\0';
-            printf(BLUE_COLOR BOLD "-> %s" RESET_COLOR, target);
+            printf(BLUE_COLOR BOLD " -> %s" RESET_COLOR, target);
         }
     }
     printf("\n");
-}
-
-void add_time(struct stat st) {
-    char* time_str = ctime(&st.st_ctime);
-
-    char formatted_time[12];
-    strncpy(formatted_time, time_str + 4, 12);
-    printf("%s  ", formatted_time);
-}
-
-void add_user(struct stat st) {
-    struct passwd* pwd_info = getpwuid(st.st_uid);
-    if (pwd_info == NULL) {
-        printf("%ud ", st.st_uid); // pwd_info error
-        return;
-    }
-    printf("%s ", pwd_info->pw_name);
 }
 
 void add_permissions(mode_t mode) {
@@ -317,17 +337,34 @@ void add_permissions(mode_t mode) {
 }
 
 void add_nlinks(struct stat st) {
-    printf("%lu ", (unsigned long int)st.st_nlink);
+    printf("%*lu", indents_before.links, (unsigned long int)st.st_nlink);
+}
+
+void add_user(struct stat st) {
+    struct passwd* pwd_info = getpwuid(st.st_uid);
+    if (pwd_info == NULL) {
+        printf(" %-*u ", indents_before.user_name, st.st_uid); // pwd_info error
+        return;
+    }
+    printf(" %-*s ", indents_before.user_name, pwd_info->pw_name);
 }
 
 void add_group(struct stat st) {
     struct group* grp_info = getgrgid(st.st_gid);
 
     if (grp_info == NULL) {
-        printf("%ud ", st.st_gid); // grp_info error
+        printf("%-*u ", indents_before.group_name, st.st_gid); // grp_info error
         return;
     }
-    printf("%s ", grp_info->gr_name);
+    printf("%-*s ", indents_before.group_name, grp_info->gr_name);
+}
+
+void add_time(struct stat st) {
+    char* time_str = ctime(&st.st_ctime);
+
+    char formatted_time[12];
+    strncpy(formatted_time, time_str + 4, 12);
+    printf(" %s ", formatted_time);
 }
 
 void join_path(const char* dir, const char* name, char* out, size_t out_size) {
@@ -338,4 +375,70 @@ void join_path(const char* dir, const char* name, char* out, size_t out_size) {
     else {
         snprintf(out, out_size, "%s/%s", dir, name);
     }
+}
+
+void calculate_indents(struct stat st, const char* file) {
+    // links width 
+    {
+        char tmp[64];
+        int len = snprintf(tmp, sizeof(tmp), "%lu", (unsigned long)st.st_nlink);
+        if (len > indents_before.links) {
+            indents_before.links = len;
+        }
+    }
+
+    // user name width 
+    {
+        struct passwd* pwd_info = getpwuid(st.st_uid);
+        int len;
+        if (pwd_info != NULL) {
+            len = (int)strlen(pwd_info->pw_name);
+        }
+        else {
+            char tmp[64];
+            len = snprintf(tmp, sizeof(tmp), "%u", st.st_uid);
+        }
+        if (len > indents_before.user_name) {
+            indents_before.user_name = len;
+        }
+    }
+
+    // group name width 
+    {
+        struct group* grp_info = getgrgid(st.st_gid);
+        int len;
+        if (grp_info != NULL) {
+            len = (int)strlen(grp_info->gr_name);
+        }
+        else {
+            char tmp[64];
+            len = snprintf(tmp, sizeof(tmp), "%u", st.st_gid);
+        }
+        if (len > indents_before.group_name) {
+            indents_before.group_name = len;
+        }
+    }
+
+    // file size width 
+    {
+        char tmp[64];
+        int len = snprintf(tmp, sizeof(tmp), "%ld", st.st_size);
+        if (len > indents_before.file_size) {
+            indents_before.file_size = len;
+        }
+    }
+
+    // file name width 
+    {
+        int len = (int)strlen(file);
+        if (len > indents_before.file_name) {
+            indents_before.file_name = len;
+        }
+    }
+}
+
+int cmp_strptr(const void* p1, const void* p2) {
+    const char* a = *(const char* const*)p1;
+    const char* b = *(const char* const*)p2;
+    return strcmp(a, b);
 }
