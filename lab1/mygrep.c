@@ -37,12 +37,23 @@ int find_target(const char* line, const char* substring) {
 
 void grep(int argc, char** argv) {
     char line[BUF_SIZE];
+    if (argc == 2) {
+        while (fgets(line, sizeof(line), stdin) != NULL) {
+            format(line);
+            find_target(line, argv[1]);
 
-    while (fgets(line, sizeof(line), stdin) != NULL) {
-        format(line);
-        find_target(line, argv[1]);
+            fflush(stdout);
+        }
+    }
+    else if (argc == 3) {
+        FILE* file = fopen(argv[2], "r");
+        while (fgets(line, sizeof(line), file)) {
+            format(line);
+            find_target(line, argv[1]);
+            
+        }
 
-        fflush(stdout);
+        fclose(file);
     }
 }
 
