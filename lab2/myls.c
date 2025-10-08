@@ -20,7 +20,7 @@
 #define BOLD "\033[1m"
 
 #define BUF_SIZE 4096
-#define CAPACITY 128
+#define INIT_CAPACITY 128
 
 #define PERMS_SIZE 11
 
@@ -40,6 +40,7 @@ void handle_params(int argc, char **argv, int* a_flag, int* l_flag, const char**
 
 void colorize_filename(struct stat st, const char* name);
 void full_format(struct stat st, const char* filename, const char* fullpath);
+void join_path(const char* dir, const char* name, char* out, size_t out_size);
 
 void add_permissions(mode_t mode);
 void add_nlinks(struct stat st);
@@ -85,19 +86,20 @@ void ls(int* a_flag, int* l_flag, const char** path) {
     struct stat st;
     long total = 0;
 
-    char** files = malloc(CAPACITY * sizeof(char*)); 
+    char** files = malloc(INIT_CAPACITY * sizeof(char*)); 
     if (!files) { 
         perror("malloc"); 
         exit(1); 
     }
     int files_count = 0;
 
-    Errors* errors = malloc(CAPACITY * sizeof(Errors));
+    Errors* errors = malloc(INIT_CAPACITY * sizeof(Errors));
     if (!errors) { 
         perror("errors"); 
         exit(1); 
     }
     int err_count = 0;
+    int capacity = INIT_CAPACITY;
 
     DIR* dir = opendir(*path);
     if (!dir) {
@@ -105,12 +107,24 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         return;
     }
 
-    while ((entry = readdir(dir)) != NULL) {        
-        files[files_count] = malloc(strlen(entry->d_name) + 1);
-        
-        if (files[files_count] != NULL) {
-            strcpy(files[files_count], entry->d_name);
+    while ((entry = readdir(dir)) != NULL) {  
+        if (files_count >= capacity) {
+            capacity *= 2;
+            char** tmp = realloc(files, capacity * sizeof(char*));
+            if (!tmp) {
+                perror("realloc");
+                exit(1);
+            }
+            files = tmp;
         }
+        
+        files[files_count] = malloc(strlen(entry->d_name) + 1);
+        if (!files[files_count]) {
+            perror("malloc file");
+            exit(1);
+        }
+        
+        strcpy(files[files_count], entry->d_name);
         files_count++;
     }
     
@@ -118,13 +132,13 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 
     // find errors
     for (int i = 0; i < files_count; ++i) {
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", *path, files[i]);
+        join_path(*path, files[i], fullpath, sizeof(fullpath));
 
-        if (lstat(fullpath, &st) == 0) {
+        int st_status = lstat(fullpath, &st);
+        if (st_status == 0) {
             total += st.st_blocks;
         }
-
-        if (lstat(fullpath, &st) == -1) {
+        else if (st_status == -1) {
             errors[err_count].errnum = errno;
             strncpy(errors[err_count].path, fullpath, BUF_SIZE-1);
             errors[err_count].path[BUF_SIZE-1] = '\0';
@@ -156,9 +170,7 @@ void ls(int* a_flag, int* l_flag, const char** path) {
         printf("total %ld\n", total / 2);
     }
     // print files
-    for (int i = 0; i < files_count; ++i) {
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", *path, files[i]);
-        
+    for (int i = 0; i < files_count; ++i) {        
         if (!*a_flag && files[i][0] == '.') {
             continue;
         }
@@ -202,7 +214,12 @@ void ls(int* a_flag, int* l_flag, const char** path) {
 
 void colorize_filename(struct stat st, const char* name) {
     if (S_ISREG(st.st_mode)) { // regular file
-        printf(GREEN_COLOR BOLD "%s  " RESET_COLOR, name);
+        if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) { // executable
+            printf(GREEN_COLOR BOLD "%s  " RESET_COLOR, name);
+        } 
+        else { // non executable
+            printf("%s  ", name);
+        }
     }
     else if (S_ISLNK(st.st_mode)) { // link
         printf(LIGHT_BLUE_COLOR BOLD "%s  " RESET_COLOR, name);
@@ -311,4 +328,14 @@ void add_group(struct stat st) {
         return;
     }
     printf("%s ", grp_info->gr_name);
+}
+
+void join_path(const char* dir, const char* name, char* out, size_t out_size) {
+    size_t dir_len = strlen(dir);
+    if (dir_len == 0 || dir[dir_len - 1] == '/') {
+        snprintf(out, out_size, "%s%s", dir, name);
+    }
+    else {
+        snprintf(out, out_size, "%s/%s", dir, name);
+    }
 }
