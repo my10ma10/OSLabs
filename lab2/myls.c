@@ -380,7 +380,7 @@ void add_group(struct stat st) {
 void add_time(struct stat st) {
     char* time_str = ctime(&st.st_ctime);
 
-    char formatted_time[12];
+    char formatted_time[13] = {0};
     strncpy(formatted_time, time_str + 4, 12);
     printf(" %s ", formatted_time);
 }
