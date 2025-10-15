@@ -9,23 +9,23 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-#define ADD_MASK 0
-#define SUBTRACT_MASK 1
-#define ASSIGN_MASK 2
-
 void processMask(const char* filename, const char* mask_str);
 
 void processAsBitMask(const char* filename, const char* mask_str);
 void processAsLetterMask(const char* filename, const char* mask_str);
 
 void checkDigitMask(const char* number);
-int checkLetterMaskAndDefineOperation(const char* letters);
+void checkLetterMask(const char* letters);
+
+mode_t setWhoMask(char whoSymb);
+mode_t setPermsMask(char permsSymb);
+
+mode_t applyPerms(mode_t whoMask, mode_t permsMask);
 
 void combine(mode_t* initMask, mode_t newMask, int operation);
 void changeMod(const char* filename, mode_t initMask);
 
 void getCurrentFilePermissions(const char* filename, struct stat* st);
-int getOperation(const char letter);
 void onExitHandler(int exit_code, void* arg);
 
 int main(int argc, char** argv) {
@@ -54,7 +54,6 @@ void processMask(const char* filename, const char* mask_str) {
     else {
         processAsLetterMask(filename, mask_str);
     }
-
 }
 
 void processAsBitMask(const char* filename, const char* mask_str) {
@@ -76,36 +75,35 @@ void processAsBitMask(const char* filename, const char* mask_str) {
 }
 
 void processAsLetterMask(const char* filename, const char* mask_str) {
-    int operation = checkLetterMaskAndDefineOperation(mask_str);
+    checkLetterMask(mask_str);
     
     struct stat st;
     getCurrentFilePermissions(filename, &st);
 
+    int operation;
+
     mode_t initMask = st.st_mode;
+    mode_t whoMask = 0;
+    mode_t permsMask = 0;
     mode_t newMask = 0;
 
     for (size_t i = 0; i < strlen(mask_str); ++i) {
-        switch (mask_str[i]) {
-        case 'u':
-            newMask = S_IRUSR | S_IWUSR | S_IXUSR;
-            break;
-        case 'g':
-            newMask |= S_IRGRP | S_IWGRP | S_IXGRP;
-            break;
-        case 'o':
-            newMask |= S_IROTH | S_IWOTH | S_IXOTH;
-            break;
-        case 'a':
-            newMask |= S_IRUSR | S_IWUSR | S_IXUSR;
-            newMask |= S_IRGRP | S_IWGRP | S_IXGRP;
-            newMask |= S_IROTH | S_IWOTH | S_IXOTH;
-            break;
-        default:
-            break;
+        if (strchr("ugoa", mask_str[i])) {
+            whoMask |= setWhoMask(mask_str[i]);
+        }
+
+        if (strchr("+-=", mask_str[i])) {
+            operation = mask_str[i];
+        }
+
+        if (strchr("rwx", mask_str[i])) {
+            permsMask |= setPermsMask(mask_str[i]);
         }
     }
 
-    combine(&initMask, newMask, operation);    
+    newMask |= applyPerms(whoMask, permsMask);
+
+    combine(&initMask, newMask, operation);
     changeMod(filename, initMask);
 }
 
@@ -118,37 +116,78 @@ void checkDigitMask(const char* number) {
     }
 }
 
-int checkLetterMaskAndDefineOperation(const char* letters) {
-    int res = -1;
+void checkLetterMask(const char* letters) {
     for (size_t i = 0; i < strlen(letters); ++i) {
         if (!strchr("ugoarwx+-=", letters[i])) {
             exit(1);
         }
-        if (strchr("+-=", letters[i])) {
-            if (res != -1) exit(1);
-            res = getOperation(letters[i]);
-        }
     }
-    return res;
+}
+
+mode_t setWhoMask(char who) {
+    mode_t whoMask = 0;
+    switch (who) {
+        case 'u':
+            whoMask |= S_IRWXU;
+            break;
+        case 'g':
+            whoMask |= S_IRWXG;
+            break;
+        case 'o':
+            whoMask |= S_IRWXO;
+            break;
+        case 'a':
+            whoMask |= S_IRWXU | S_IRWXG | S_IRWXO;
+            break;
+        default:
+            break;
+    }
+    return whoMask;
+}
+
+mode_t setPermsMask(char permsSymb) {
+    mode_t permsMask = 0;
+    switch (permsSymb) {
+        case 'r':
+            permsMask |= S_IRUSR | S_IRGRP | S_IROTH;
+            break;
+        case 'w':
+            permsMask |= S_IWUSR | S_IWGRP | S_IWOTH;
+            break;
+        case 'x':
+            permsMask |= S_IXUSR | S_IXGRP | S_IXOTH;
+            break;            
+        default:
+            break;
+    }
+    return permsMask;
+}
+
+mode_t applyPerms(mode_t whoMask, mode_t permsMask) {
+    mode_t newMask = 0;
+    if (whoMask & S_IRWXU) newMask |= permsMask & S_IRWXU;
+    if (whoMask & S_IRWXG) newMask |= permsMask & S_IRWXG;
+    if (whoMask & S_IRWXO) newMask |= permsMask & S_IRWXO;
+    return newMask;
 }
 
 void combine(mode_t* initMask, mode_t newMask, int operation) {
-    if (operation == -1) {
-        *initMask = newMask;
-    }
     switch (operation)
     {
-    case ADD_MASK:
+    case '+':
         *initMask |= newMask;
         break;
-    case SUBTRACT_MASK:
+    case '-':
         *initMask &= ~newMask;
         break;
-    case ASSIGN_MASK:
+    case '=':
         *initMask = newMask;
         break;    
     default:
         break;
+    }
+    if (operation == -1) {
+        *initMask = newMask;
     }
 }
 
@@ -165,26 +204,7 @@ void getCurrentFilePermissions(const char* filename, struct stat* st) {
     }
 }
 
-int getOperation(const char letter) {
-    int res = -1;
-    switch (letter) {
-        case '+':
-            res = ADD_MASK;
-            break;
-        case '-':
-            res = SUBTRACT_MASK;
-            break;
-        case '=':
-            res = ASSIGN_MASK;
-            break;                
-        default:
-            break;
-    }
-    return res;
-}
-
-void onExitHandler(int exit_code, void *arg)
-{
+void onExitHandler(int exit_code, void* arg) {
     switch (exit_code) {
         case 0:
             return;
