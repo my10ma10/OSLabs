@@ -267,8 +267,10 @@ void onExitHandler(int exit_code, void* arg) {
             fprintf(stderr, "Try 'chmod --help' for more information.\n");
             break;
         default:
+        {
             int error = errno;
             fprintf(stderr, "Error: %d (%s)\n", error, strerror(error));
             break;
+        }
     }
 }
