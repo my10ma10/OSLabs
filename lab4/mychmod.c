@@ -5,16 +5,15 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
-#include <assert.h>
 #include <stdlib.h>
 #include <ctype.h>
 
 void processMask(const char* filename, const char* mask_str);
 
 void processAsBitMask(const char* filename, const char* mask_str);
-void processAsLetterMask(const char* filename, const char* mask_str);
-
 void checkDigitMask(const char* number);
+
+void processAsLetterMask(const char* filename, const char* mask_str);
 void checkLetterMask(const char* letters);
 
 mode_t setWhoMask(char whoSymb);
@@ -22,15 +21,24 @@ mode_t setPermsMask(char permsSymb);
 
 mode_t applyPerms(mode_t whoMask, mode_t permsMask);
 
-void combine(mode_t* initMask, mode_t newMask, int operation);
+void combine(mode_t* initMask, mode_t newMask, int operation, mode_t whoMask);
 void changeMod(const char* filename, mode_t initMask);
 
 void getCurrentFilePermissions(const char* filename, struct stat* st);
+mode_t getUmask();
+
 void onExitHandler(int exit_code, void* arg);
+
 
 int main(int argc, char** argv) {
     if (argc < 3) {
-        fprintf(stderr, "Too few arguments\n");
+        char error_msg[128];
+         if (argc == 2) {
+            snprintf(error_msg, sizeof(error_msg), "missing operand after '%s'", argv[1]);
+        } else {
+            snprintf(error_msg, sizeof(error_msg), "missing operand");
+        }
+        fprintf(stderr, "mychmod: %s\n", error_msg);
         return 1;
     }
     
@@ -70,9 +78,23 @@ void processAsBitMask(const char* filename, const char* mask_str) {
         exit(2);
     }
 
-    combine(&initMask, newMask, -1);
-    changeMod(filename, (mode_t)initMask);
+    combine(&initMask, newMask, -1, 0);
+    changeMod(filename, initMask);
 }
+
+void checkDigitMask(const char* number) {
+    size_t num_len = strlen(number);
+
+    if (num_len > 3) exit(1);
+
+    for (size_t i = 0; i < num_len; ++i) {
+        int digit = number[i];
+        if (!isdigit(digit) || digit < '0' || digit > '7') {
+            exit(1);
+        }
+    }
+}
+
 
 void processAsLetterMask(const char* filename, const char* mask_str) {
     checkLetterMask(mask_str);
@@ -87,33 +109,42 @@ void processAsLetterMask(const char* filename, const char* mask_str) {
     mode_t permsMask = 0;
     mode_t newMask = 0;
 
-    for (size_t i = 0; i < strlen(mask_str); ++i) {
-        if (strchr("ugoa", mask_str[i])) {
-            whoMask |= setWhoMask(mask_str[i]);
-        }
+    if (strchr("ugoa", mask_str[0])) { /*who symbol*/
+        for (size_t i = 0; i < strlen(mask_str); ++i) {
+            if (strchr("ugoa", mask_str[i])) {
+                whoMask |= setWhoMask(mask_str[i]);
+            }
+            if (strchr("+-=", mask_str[i])) {
+                operation = mask_str[i];
+            }
 
-        if (strchr("+-=", mask_str[i])) {
-            operation = mask_str[i];
+            if (strchr("rwx", mask_str[i])) {
+                permsMask |= setPermsMask(mask_str[i]);
+            }
         }
+        
+    }   
+    else if (strchr("+-=", mask_str[0])) { /*operation*/
+        whoMask |= setWhoMask('a');
+        for (size_t i = 0; i < strlen(mask_str); ++i) {
+            if (strchr("+-=", mask_str[i])) {
+                operation = mask_str[i];
+            }
 
-        if (strchr("rwx", mask_str[i])) {
-            permsMask |= setPermsMask(mask_str[i]);
+            if (strchr("rwx", mask_str[i])) {
+                permsMask |= setPermsMask(mask_str[i]);
+            }
         }
+    }
+    else {
+        exit(1);
     }
 
     newMask |= applyPerms(whoMask, permsMask);
 
-    combine(&initMask, newMask, operation);
-    changeMod(filename, initMask);
-}
+    combine(&initMask, newMask, operation, whoMask);
 
-void checkDigitMask(const char* number) {
-    for (size_t i = 0; i < strlen(number); ++i) {
-        int digit = number[i];
-        if (!isdigit(digit) || digit < '0' || digit > '7') {
-            exit(1);
-        }
-    }
+    changeMod(filename, initMask);
 }
 
 void checkLetterMask(const char* letters) {
@@ -171,9 +202,12 @@ mode_t applyPerms(mode_t whoMask, mode_t permsMask) {
     return newMask;
 }
 
-void combine(mode_t* initMask, mode_t newMask, int operation) {
-    switch (operation)
-    {
+void combine(mode_t* initMask, mode_t newMask, int operation, mode_t whoMask) {
+    mode_t umask = getUmask();
+    
+    if (whoMask == (S_IRWXU | S_IRWXG | S_IRWXO)) newMask &= ~umask;
+    
+    switch (operation) {
     case '+':
         *initMask |= newMask;
         break;
@@ -181,7 +215,18 @@ void combine(mode_t* initMask, mode_t newMask, int operation) {
         *initMask &= ~newMask;
         break;
     case '=':
-        *initMask = newMask;
+        if (whoMask & S_IRWXU) {
+            *initMask &= ~S_IRWXU;
+            *initMask |= newMask & S_IRWXU;
+        }
+        if (whoMask & S_IRWXG) {
+            *initMask &= ~S_IRWXG;
+            *initMask |= newMask & S_IRWXG;
+        }
+        if (whoMask & S_IRWXO) {
+            *initMask &= ~S_IRWXO;
+            *initMask |= newMask & S_IRWXO;
+        }    
         break;    
     default:
         break;
@@ -202,6 +247,12 @@ void getCurrentFilePermissions(const char* filename, struct stat* st) {
         perror("mychmod error");
         exit(2);
     }
+}
+
+mode_t getUmask() {
+    mode_t mask = umask(0);
+    umask(mask);
+    return mask;
 }
 
 void onExitHandler(int exit_code, void* arg) {
