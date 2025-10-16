@@ -8,12 +8,12 @@
 #include <stdlib.h>
 #include <ctype.h>
 
-void processMask(const char* filename, const char* mask_str);
+void processMask(const char* filename, char* mask_str);
 
 void processAsBitMask(const char* filename, const char* mask_str);
 void checkDigitMask(const char* number);
 
-void processAsLetterMask(const char* filename, const char* mask_str);
+void processAsLetterMask(const char* filename, char* mask_str);
 void checkLetterMask(const char* letters);
 
 mode_t setWhoMask(char whoSymb);
@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    const char* mask = argv[1];
+    char* mask = argv[1];
     on_exit(onExitHandler, argv[1]);
 
     for (int i = 2; i < argc; ++i) { 
@@ -52,7 +52,7 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-void processMask(const char* filename, const char* mask_str) {
+void processMask(const char* filename, char* mask_str) {
     // стейты: пользователь (ugoa), операция (+-=), цифра (0...7), права (rwx)
     const char symbol = mask_str[0];
     
@@ -96,60 +96,63 @@ void checkDigitMask(const char* number) {
 }
 
 
-void processAsLetterMask(const char* filename, const char* mask_str) {
+void processAsLetterMask(const char* filename, char* mask_str) {
     checkLetterMask(mask_str);
     
     struct stat st;
     getCurrentFilePermissions(filename, &st);
 
-    int operation;
-
     mode_t initMask = st.st_mode;
-    mode_t whoMask = 0;
-    mode_t permsMask = 0;
-    mode_t newMask = 0;
 
-    if (strchr("ugoa", mask_str[0])) { /*who symbol*/
-        for (size_t i = 0; i < strlen(mask_str); ++i) {
-            if (strchr("ugoa", mask_str[i])) {
-                whoMask |= setWhoMask(mask_str[i]);
-            }
-            if (strchr("+-=", mask_str[i])) {
-                operation = mask_str[i];
-            }
+    char* token = strtok(mask_str, ",");
+    while (token != NULL) {
+        int operation;
 
-            if (strchr("rwx", mask_str[i])) {
-                permsMask |= setPermsMask(mask_str[i]);
+        mode_t whoMask = 0;
+        mode_t permsMask = 0;
+        mode_t newMask = 0;
+
+        if (strchr("ugoa", token[0])) { /*who symbol*/
+            for (size_t i = 0; i < strlen(token); ++i) {
+                if (strchr("ugoa", token[i])) {
+                    whoMask |= setWhoMask(token[i]);
+                }
+                if (strchr("+-=", token[i])) {
+                    operation = token[i];
+                }
+
+                if (strchr("rwx", token[i])) {
+                    permsMask |= setPermsMask(token[i]);
+                }
+            }
+        }   
+        else if (strchr("+-=", token[0])) { /*operation*/
+            whoMask |= setWhoMask('a');
+            for (size_t i = 0; i < strlen(token); ++i) {
+                if (strchr("+-=", token[i])) {
+                    operation = token[i];
+                }
+
+                if (strchr("rwx", token[i])) {
+                    permsMask |= setPermsMask(token[i]);
+                }
             }
         }
-        
-    }   
-    else if (strchr("+-=", mask_str[0])) { /*operation*/
-        whoMask |= setWhoMask('a');
-        for (size_t i = 0; i < strlen(mask_str); ++i) {
-            if (strchr("+-=", mask_str[i])) {
-                operation = mask_str[i];
-            }
-
-            if (strchr("rwx", mask_str[i])) {
-                permsMask |= setPermsMask(mask_str[i]);
-            }
+        else {
+            exit(1);
         }
-    }
-    else {
-        exit(1);
-    }
+        newMask |= applyPerms(whoMask, permsMask);
+        combine(&initMask, newMask, operation, whoMask);
 
-    newMask |= applyPerms(whoMask, permsMask);
-
-    combine(&initMask, newMask, operation, whoMask);
+        token = strtok(NULL, ",");
+    }
 
     changeMod(filename, initMask);
 }
 
 void checkLetterMask(const char* letters) {
     for (size_t i = 0; i < strlen(letters); ++i) {
-        if (!strchr("ugoarwx+-=", letters[i])) {
+        if (!strchr("ugoarwx,+-=", letters[i])) {
             exit(1);
         }
     }
@@ -204,7 +207,7 @@ mode_t applyPerms(mode_t whoMask, mode_t permsMask) {
 
 void combine(mode_t* initMask, mode_t newMask, int operation, mode_t whoMask) {
     mode_t umask = getUmask();
-    
+
     if (whoMask == (S_IRWXU | S_IRWXG | S_IRWXO)) newMask &= ~umask;
     
     switch (operation) {
