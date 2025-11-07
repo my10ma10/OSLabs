@@ -9,15 +9,18 @@
 #include <unistd.h>
 
 #define BUF_SIZE 4096
-#define FILENAME_SIZE 1024
+#define FILENAME_SIZE 256
 
-/*
-./archiver arch_name –i(--input) file1
-*/
 struct arch_header {
     char arch_name[FILENAME_SIZE];
     size_t files_count;
     int64_t size;
+};
+
+struct file_info {
+    char filename[FILENAME_SIZE];
+    off_t offset; // позиция в файле архива
+    off_t lenght;
 };
 
 
@@ -29,12 +32,16 @@ int process_filenames(int argc, char** argv, char** filenames);
 void options_processing(int rez, int arch_fd, char** filenames, int count);
 
 void input_files(int arch_fd, char** filenames, int files_count);
-void extract(char* filename);
+void extract(int arch_fd, char** filenames, int count);
 void print_archive_info(int arch_fd);
 void help();
 
 void update_count_and_size_in_header(char* arch_name, char* filenames[FILENAME_SIZE], int count);
 off_t get_file_size(char* filename);
+
+struct arch_header read_archive_header(int arch_fd);
+void write_archive_header(int arch_fd, struct arch_header* header);
+
 
 int main(int argc, char** argv) {
     if (argc < 2) {
@@ -62,11 +69,11 @@ int main(int argc, char** argv) {
         char* filenames[FILENAME_SIZE];
         int count = process_filenames(argc, argv, filenames);
 
-        if (count > 0) {
+        if (count > 0 && rez == 'i') {
             update_count_and_size_in_header(argv[1], filenames, count);
         }
-        
         options_processing(rez, arch_fd, filenames, count);
+        
     }
     close(arch_fd);
     return 0;
@@ -123,16 +130,19 @@ int process_filenames(int argc, char** argv, char** filenames) {
 void options_processing(int rez, int arch_fd, char** filenames, int count) {
     switch (rez) {
     case 'i':
-        input_files(arch_fd, filenames, count);
+        if (count > 0) {
+            input_files(arch_fd, filenames, count);
+        }
         break;
 
     case 'e':
-        // extract();
+        if (count > 0) {
+            extract(arch_fd, filenames, count);
+        }
         break;
 
     case 's':
-        print_archive_info(arch_fd);
-        
+        print_archive_info(arch_fd);        
         break;
 
     case 'h':
@@ -147,43 +157,147 @@ void options_processing(int rez, int arch_fd, char** filenames, int count) {
 }
 
 void input_files(int arch_fd, char** filenames, int files_count) {
-    lseek(arch_fd, 0, SEEK_END);
-    
+    struct file_info infos[files_count];
+
+    printf("sizeof(struct arch_header) = %ld\n", sizeof(struct arch_header));
+    off_t headers_size = sizeof(struct arch_header) + files_count * sizeof(struct file_info);
+    lseek(arch_fd, headers_size, SEEK_SET);
+
     for (int i = 0; i < files_count; ++i) {
         int source_fd = open(filenames[i], O_RDONLY);
         if (source_fd == -1) {
             int error = errno;
-            fprintf(stderr, "open source error: %s\n", strerror(error));
+            fprintf(stderr, "Ошибка открытия добавляемого файла: %s\n", strerror(error));
             exit(1);
         }
+
+        struct file_info info = {0};
+        snprintf(info.filename, sizeof(info.filename), "%s", filenames[i]);
+
+        info.offset = lseek(arch_fd, 0, SEEK_CUR);
+
         
         char buf[BUF_SIZE];
         ssize_t n;
 
         while ((n = read(source_fd, buf, sizeof(buf))) > 0) {
-            ssize_t wr_n = write(arch_fd, buf, n); 
-            printf("Записано %ld байт для %s\n", wr_n, filenames[i]);
-
-            if (wr_n != n) {
-                int error = errno;
-                fprintf(stderr, "Ошибка записи файла: %s\n", strerror(error));
-                close(source_fd);
-                exit(1);
-            }   
-            
-        }
-        if (n == -1) {
-            int error = errno;
-            fprintf(stderr, "Ошибка чтения файла: %s\n", strerror(error));
-            close(source_fd);
-            exit(1);
+            write(arch_fd, buf, n);            
+            info.lenght += n;          
         }
         close(source_fd);
+        infos[i] = info;
+
     }    
+    
+    // запись arch_header и file_info
+    lseek(arch_fd, sizeof(struct arch_header), SEEK_SET);
+    printf("sizeof(struct file_info) = %ld\n", sizeof(struct file_info));
+
+    write(arch_fd, infos, sizeof(infos));
+    lseek(arch_fd, 0, SEEK_END);
 }
 
-void extract(char* filename) {
-    printf("Извлекаем %s", filename);
+void extract(int arch_fd, char** filenames, int target_count) {
+    int tmp_arch_fd = open("tmp_archive", O_CREAT | O_EXCL | O_WRONLY, 0644);
+
+    struct arch_header header = read_archive_header(arch_fd);
+
+    lseek(tmp_arch_fd, 0, SEEK_SET);
+    if (write(tmp_arch_fd, &header, sizeof(struct arch_header)) == -1) {
+        perror("Ошибка записи заголовка архива во временный архив");
+        close(tmp_arch_fd);
+        close(arch_fd);
+        exit(1);
+    }
+
+    char dir_name[BUF_SIZE];
+    snprintf(dir_name, sizeof(dir_name), "ex_%s", header.arch_name);
+
+    if (mkdir(dir_name, 0777) != 0) {
+        int error = errno;
+        fprintf(stderr, "Ошибка создания директории для извлеченных файлов: %s\n", strerror(error));
+        close(tmp_arch_fd);
+        close(arch_fd);
+        exit(1);
+    }
+
+
+    // перебор заголовков
+    for (size_t j = 0; j < header.files_count; ++j) { 
+
+        for (int i = 0; i < target_count; ++i) {
+            
+            off_t offset = sizeof(struct arch_header) + j * sizeof(struct file_info);
+            lseek(arch_fd, offset, SEEK_SET);
+            
+            struct file_info info;
+            int n = read(arch_fd, &info, sizeof(struct file_info));
+
+            if (n == -1) {
+                perror("Ошибка чтения заголовка файла");
+                close(arch_fd);
+                close(tmp_arch_fd);
+                exit(1);
+            }
+
+            if (strcmp(info.filename, filenames[i]) != 0) {
+                int written = write(tmp_arch_fd, &info, sizeof(struct file_info));
+                if (written == -1) {
+                    perror("Ошибка записи заголовка файлов во временный архив");
+                    close(arch_fd);
+                    close(tmp_arch_fd);
+                    exit(1);
+                }
+                break;
+            }
+            else { // извлечение данных из архива в новый файл
+                printf("Извлекаем файл %s\n", filenames[i]);
+
+                header.files_count--;
+                lseek(arch_fd, info.offset, SEEK_SET);
+
+
+                char extracted_file_name[BUF_SIZE * 2];
+                snprintf(extracted_file_name, sizeof(extracted_file_name), 
+                    "%s/%s", dir_name, filenames[i]);
+
+                int extracted_file_fd = open(extracted_file_name, O_CREAT | O_EXCL | O_WRONLY, 0644);
+
+                char buf[BUF_SIZE];
+                int read_n;
+                while ((read_n = read(arch_fd, &buf, sizeof(buf))) != 0) {
+                    int written = write(extracted_file_fd, buf, read_n);
+                    if (written == -1 ) {
+                        perror("Ошибка записи извлекаемого файла в новый файл");
+                        close(arch_fd);
+                        close(tmp_arch_fd);
+                        close(extracted_file_fd);
+                        exit(1);
+                    }
+                }
+                
+            } //end else
+        }
+    }
+    printf("%s %ld %ld\n", header.arch_name, header.files_count, header.size);
+
+    lseek(tmp_arch_fd, 0, SEEK_SET);
+    if (write(tmp_arch_fd, &header, sizeof(struct arch_header)) == -1) {
+        perror("Ошибка записи заголовка архива во временный архив");
+        close(tmp_arch_fd);
+        close(arch_fd);
+        exit(1);
+    }
+
+    close(arch_fd);
+    close(tmp_arch_fd);
+    
+    remove(header.arch_name);
+
+    if (rename("tmp_archive", header.arch_name) != 0) {
+        perror("Ошибка переименования временного архива");
+        exit(1);
+    }
 }
 
 enum byte_sizes {
@@ -200,7 +314,7 @@ void print_archive_info(int arch_fd) {
     int n = read(arch_fd, &header, sizeof(header));
     if (n == -1) {
         int error = errno;
-        fprintf(stderr, "Ошибка чтения: %s\n", strerror(error));
+        fprintf(stderr, "Ошибка чтения при выводе информации об архиве: %s\n", strerror(error));
         exit(1);
     }
 
@@ -252,12 +366,7 @@ void update_count_and_size_in_header(char* arch_name, char* filenames[FILENAME_S
         exit(1);
     }
 
-    struct arch_header header;
-    int rd_n = read(arch_fd, &header, sizeof(struct arch_header));
-    if (rd_n == -1) {
-        perror("Ошибка чтения заголовка");
-        exit(1);
-    }
+    struct arch_header header = read_archive_header(arch_fd);
 
     header.files_count += count;
     for (int i = 0; i < count; ++i) {
@@ -265,10 +374,10 @@ void update_count_and_size_in_header(char* arch_name, char* filenames[FILENAME_S
     }
 
     lseek(arch_fd, 0, SEEK_SET);
-    int wr_n = write(arch_fd, &header, sizeof(header));
+    int written = write(arch_fd, &header, sizeof(header));
     // printf("Записано %d байт заголовка\n", wr_n);
     
-    if (wr_n == -1) {
+    if (written == -1) {
         perror("Ошибка записи заголовка");
         exit(1);
     }
@@ -289,13 +398,35 @@ off_t get_file_size(char* filename) {
     return st.st_size;
 }
 
+struct arch_header read_archive_header(int arch_fd) {
+    struct arch_header header;
+
+    int n = read(arch_fd, &header, sizeof(struct arch_header));
+
+    if (n == -1) {
+        perror("Ошибка чтения заголовка");
+        exit(1);
+    }
+    return header;
+}
+
+void write_archive_header(int fd, struct arch_header* header) {
+    int n = write(fd, header, sizeof(struct arch_header));
+
+    if (n == -1) {
+        perror("Ошибка чтения заголовка");
+        close(fd);
+        exit(1);
+    }
+}
+
 void help() {
     printf(
         "  ИМЯ\n\t"
             "archiver - утилита примитивного архиватора без сжатия\n\n"
         
         "  ИСПОЛЬЗОВАНИЕ\n\t"
-            "./archive [ИМЯ_АРХИВА] [ОПЦИИ] [ФАЙЛ...]\n\n"
+            "./archiver [ИМЯ_АРХИВА] [ОПЦИИ] [ФАЙЛ...]\n\n"
 
         "  ОПЦИИ\n"
         "-i, --input\n\t"
