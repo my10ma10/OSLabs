@@ -73,6 +73,12 @@ int main() {
         sleep(1);
     }
 
+    if (shmdt(sh_array) == -1 ) {
+        perror("shmdt");
+        return 1;
+    }
+
+    shmctl(shm_id, IPC_RMID, NULL);
     unlink(shm_name);
 
     return 0;

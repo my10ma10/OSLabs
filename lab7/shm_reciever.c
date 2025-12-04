@@ -60,6 +60,11 @@ int main() {
 
     printf("[RECIEVER] Текущее время и pid: %s\n", pid_time);
 
+    if (shmdt(sh_array) == -1 ) {
+        perror("shmdt");
+        return 1;
+    }
+
     return 0;
 }
 
