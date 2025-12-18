@@ -49,7 +49,6 @@ void* write_func(void* arg) {
     int* mas = (int*)arg;
     
     while (1) {
-        sem_wait(&g_sem);
 
         if (g_counter == 10) {
             sem_post(&g_sem);
@@ -93,7 +92,6 @@ void* read_func(void* arg) {
         }
         printf("}\n");
 
-        sem_post(&g_sem);
 
         sleep(1);
     }
