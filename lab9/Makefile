@@ -12,4 +12,4 @@ all: 9.1 9.2_receiver 9.2_sender
 	gcc 9.2_sender.c -lpthread -Wall -Wextra -o 9.2_sender
 
 clean: 
-	rm -f 9.19.2_receiver 9.2_sender
+	rm -f 9.1 9.2_receiver 9.2_sender

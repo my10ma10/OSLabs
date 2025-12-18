@@ -81,14 +81,10 @@ int main() {
         
         char msg[BUF_SIZE];
         snprintf(msg, SHM_SIZE * 2, "SENDER #%d: %s", getpid(), cur_time);
-        /*lock*/
-        sem_lock(sem_id);
 
         strcpy(sh_array, msg);
 
         sem_unlock(sem_id);
-        /*unlock*/
-
 
         sleep(3);
     }

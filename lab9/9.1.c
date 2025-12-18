@@ -91,9 +91,6 @@ void* read_func(void* arg) {
             printf("%d ", mas[i]);
         }
         printf("}\n");
-
-
-        sleep(1);
     }
 
     pthread_exit(NULL);

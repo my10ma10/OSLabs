@@ -46,14 +46,11 @@ int main() {
         return 1;
     }
 
-
     int sem_id = semget(shm_key, 1, 0666);
     if (sem_id == -1) {
         perror("semget");
         return 1;
     }
-
-
 
     while (1) {
         struct tm time_info = get_time();
@@ -68,11 +65,7 @@ int main() {
         printf("RECEIVER #%d: %s", getpid(), cur_time);
         strcpy(msg, sh_array);
 
-        sem_unlock(sem_id);
-
         printf("RECEIVER: new message: '%s'", msg);
-
-        sleep(3);
     }
 
     if (shmdt(sh_array) == -1 ) {
